@@ -3,6 +3,7 @@
 #对mongodb 内的数据进行帅选加入is alive 字段,并删除
 #如果总数小于10,再次进行爬取
 #
+import requests
 import thread
 import re
 import random
@@ -19,8 +20,10 @@ from selenium.webdriver.common.proxy import ProxyType
 import threadpool
 import logging
 import datetime
+import socket
+socket.setdefaulttimeout(3)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARN)
 '''
 logging.basicConfig(level=logging.DEBUG,
                 format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
@@ -86,7 +89,7 @@ class IP_POLL():
             "Opera/9.80 (Macintosh; Intel Mac OS X 10.6.8; U; fr) Presto/2.9.168 Version/11.52",
         ]
         '''
-        MONGODB_SERVER = '192.168.8.115'
+        MONGODB_SERVER = '192.168.7.115'
         MONGODB_PORT = 27017
         MONGODB_DB = 'movies'
         MONGODB_INFO_COLLECTION = 'information'
@@ -124,10 +127,39 @@ class IP_POLL():
         
         [pool.putRequest(req) for req in requests] 
         pool.wait()
+        logging.info("waiting completed!!!")
         #insert db
-
     def is_alive_ip_port(self, ip_port):
+        #logging.info("%s"%(ip_port))
+        opener3 = urllib2.build_opener(urllib2.ProxyHandler({'http':'%s:%s'%(ip_port[0],ip_port[1])}))
+        #urllib2.install_opener(opener)
+        req = urllib2.Request('https://movie.douban.com/subject/1292052/', headers=self.header)
+        #req = urllib2.Request('http://www.baidu.com', headers=self.header)
+        try:
+            response = opener3.open(req, timeout=10)
+        except Exception,e:
+            #logging.info('%s'%(repr(e)))
+            #logging.info("%s FAILED 1"%(ip_port))
+            return False
+        else:
+            try:
+                str = response.read()
+            except:
+                logging.info("%s FAILED 2"%(ip_port))
+                return False
+            #logging.info(str)
+            #regex = re.compile(r"关于百度")
+            regex = re.compile(r"The Shawshank Redemption")
+            if regex.search(str):
+                GlobalVar.get_db_handle()[self.collection_name].update({'ip': ip_port[0]},{'$set': {'ip': ip_port[0], 'port':ip_port[1], 'datetime': datetime.datetime.now()}},True)
+                logging.warn("%s OK"%(ip_port))
+                return True
+            else:
+                logging.info("%s FAILED 3"%(ip_port))
+                return False
+    def is_alive_ip_port_1(self, ip_port):
         logging.info("%s"%(ip_port))
+        
         dcap = dict(DesiredCapabilities.PHANTOMJS)
         #从USER_AGENTS列表中随机选一个浏览器头，伪装浏览器
         dcap["phantomjs.page.settings.userAgent"] = (random.choice(self.user_agent))
@@ -135,7 +167,7 @@ class IP_POLL():
         dcap["phantomjs.page.settings.loadImages"] = False
         # 设置代理
         service_args = ['--proxy=%s:%s'%(ip_port[0],ip_port[0]),'--proxy-type=socks5']
-        driver = webdriver.PhantomJS("/usr/bin/phantomjs", desired_capabilities=dcap,service_args=service_args)                
+        driver = webdriver.PhantomJS("C:\\ProgramData\\Anaconda2\\Scripts\\phantomjs.exe", desired_capabilities=dcap,service_args=service_args)                
 
         # 隐式等待5秒，可以自己调节  
         #driver.implicitly_wait(5)  
