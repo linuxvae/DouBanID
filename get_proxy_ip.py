@@ -23,14 +23,13 @@ import datetime
 import socket
 socket.setdefaulttimeout(3)
 
-logging.basicConfig(level=logging.WARN)
-'''
-logging.basicConfig(level=logging.DEBUG,
+#logging.basicConfig(level=logging.WARN)
+
+logging.basicConfig(level=logging.WARN,
                 format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
                 datefmt='%a, %d %b %Y %H:%M:%S',
                 filename='ip_pool.log',
                 filemode='w')
-'''
 
 
 

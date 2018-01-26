@@ -6,6 +6,7 @@ from selenium import webdriver
 import selenium
 import time
 import os
+import sys
 import logging
 import random
 import string
@@ -49,23 +50,9 @@ user_agent = [
 
 class DowBanID:
     def __init__(self):
-        '''
-        dcap = dict(DesiredCapabilities.PHANTOMJS)
-        #从USER_AGENTS列表中随机选一个浏览器头，伪装浏览器
-        dcap["phantomjs.page.settings.userAgent"] = random.choice(user_agent)
-        # 不载入图片，爬页面速度会快很多
-        dcap["phantomjs.page.settings.loadImages"] = False
-        self.driver = webdriver.PhantomJS(desired_capabilities=dcap)
-        '''
-        chrome_options = webdriver.ChromeOptions()
-        prefs = {"profile.managed_default_content_settings.images":2}
-        chrome_options.add_experimental_option("prefs",prefs)
-        self.driver = webdriver.Chrome(chrome_options=chrome_options)
-        self.driver.implicitly_wait(10)
-        self.driver.set_page_load_timeout(20)
-        # 设置10秒脚本超时时间  
-        self.driver.set_script_timeout(20)
-        self.db_name = 'movies'
+       
+
+        self.db_name = 'other_movies'
         self.url_collection_name = 'douban_url'
         self.ids_collection_name = 'douban_ids'
         self.client = MongoClient('192.168.7.115', 27017)
@@ -76,9 +63,24 @@ class DowBanID:
     def quit(self):
         self.driver.close()
         self.driver.quit()
-
+    def init_phantomJS_driver(self):
+        dcap = dict(DesiredCapabilities.PHANTOMJS)
+        #从USER_AGENTS列表中随机选一个浏览器头，伪装浏览器
+        dcap["phantomjs.page.settings.userAgent"] = random.choice(user_agent)
+        # 不载入图片，爬页面速度会快很多
+        dcap["phantomjs.page.settings.loadImages"] = False
+        self.driver = webdriver.PhantomJS(desired_capabilities=dcap)
+        
+    def init_chrome_driver(self):
+        chrome_options = webdriver.ChromeOptions()
+        prefs = {"profile.managed_default_content_settings.images":2}
+        chrome_options.add_experimental_option("prefs",prefs)
+        self.driver = webdriver.Chrome(chrome_options=chrome_options)
+        self.driver.implicitly_wait(10)
+        self.driver.set_page_load_timeout(20)
+        # 设置10秒脚本超时时间  
+        self.driver.set_script_timeout(20)
     def get_all_category(self):
-        types = []
         places = []
         self.driver.get("https://movie.douban.com/tag/#/")
         self.cookies = self.driver.get_cookies()
@@ -87,23 +89,23 @@ class DowBanID:
             '//div[@class="tags"]/ul')
         for element in elements:
             categorys = element.find_elements_by_xpath('./li/span')
-            if categorys[0].text == u'全部类型':
-                types = list(map(lambda x: x.text, categorys[1:]))
             if categorys[0].text == u'全部地区':
                 places = list(map(lambda x: x.text, categorys[1:]))
             #for category in categorys:
-        return types, places
+        return places
 
     def get_all_link(self):
-        "https://movie.douban.com/tag/#/?sort=S&range=0,10&tags=剧情,电影,大陆"
+        "https://movie.douban.com/tag/#/?sort=T&range=0,10&tags=剧情,电影,大陆"
         urls = []
-        types, places = self.get_all_category()
+        places = self.get_all_category()
         for i in range(0, 10, 1):
-            for type in types:
-                for place in places:
-                    url = u'https://movie.douban.com/tag/#/?sort=S&range=%s,%s&tags=%s,电影,%s'%(i, i + 1, type, place)
-                    urls.append(url)
-                    GlobalVar.get_db_handle()[self.url_collection_name].update({'url': url},{'$setOnInsert': {'complete': 0}},True)
+            #for type in types:
+            for place in places:
+                url = u'https://movie.douban.com/tag/#/?sort=R&range=%s,%s&tags=电影,%s'%(i, i + 1,  place)
+                #url2 = u'https://movie.douban.com/tag/#/?sort=R&range=%s,%s&tags=电影,%s'%(i, i + 1,  place)
+                urls.append(url)
+                #GlobalVar.get_db_handle()[self.url_collection_name].update({'url': url},{'$setOnInsert': {'complete': 0}, '$set':{'url':url2}},True)
+                GlobalVar.get_db_handle()[self.url_collection_name].update({'url': url},{'$setOnInsert': {'complete': 0}}, True)                
         return urls
 
     def update_driver_cookies(self):
@@ -187,6 +189,7 @@ class DowBanID:
         return obj_ids
 
     def get_all_id(self):
+        self.init_chrome_driver()
         all_ids = []
         wait_update_urls = []
         links = self.get_all_link()
@@ -199,11 +202,71 @@ class DowBanID:
             if len(all_ids) >= 0:
                 GlobalVar.get_db_handle()[self.url_collection_name].update_many({'url': {'$in':wait_update_urls}}, {'$set':{'complete':1}}, True)
             GlobalVar.get_db_handle()[self.url_collection_name].update({'url': res['url']}, {'$set':{'id_count':len(all_ids)}}, True)
-        '''
-        links = self.get_all_link()
-        for link in links:
-            all_ids = all_ids + self.get_one_page_all_id(link)
-            logging.info("总数:%d" % (len(all_ids)))
-        logging.info(len(list(set(all_ids))))
-        logging.info("END!!")
-        '''
+        
+    def get_repet_number(self, pre_obj_ids):
+        obj_ids = []
+        repet_number = 0
+        elements = self.driver.find_elements_by_xpath(
+            '//div[@class="cover-wp"]')
+        for element in elements:
+            obj_id = element.get_attribute("data-id")
+            obj_ids.append(obj_id)
+            if obj_id in pre_obj_ids:
+                continue
+            res = GlobalVar.get_db_handle()[self.ids_collection_name].find_one({'obj_id': obj_id})
+            if res is not None:
+                 repet_number+=1
+            else:
+                self.new_ids.append(obj_id)
+                logging.info(obj_id)        
+        logging.info("id个数 %s 重复个数%s" % (len(obj_ids), repet_number))
+        return obj_ids, repet_number
+
+    def update_new_id(self):
+        #self.init_phantomJS_driver()
+        self.new_ids = []
+        urls = []
+        self.init_chrome_driver()
+        places = ["大陆","美国","香港","台湾","日本","韩国","英国","法国","德国","意大利"
+        ,"西班牙","印度","泰国","俄罗斯","伊朗","加拿大","澳大利亚","爱尔兰","瑞典","巴西","丹麦"]
+        for place in places:
+            urls.append("https://movie.douban.com/tag/#/?sort=R&range=0,10&tags=电影,%s"%(place))
+        urls.append("https://movie.douban.com/tag/#/?sort=R&range=0,10&tags=%E7%94%B5%E5%BD%B1")
+        urls.append("https://movie.douban.com/explore#!type=movie&tag=%E7%83%AD%E9%97%A8&sort=time&page_limit=20&page_start=0")        
+        for url in urls:
+            logging.info(url)
+            self.driver.get(url)
+            self.driver.refresh()
+            time.sleep(10)
+            if self.driver.find_elements_by_link_text('关于豆瓣') is None:
+                logging.info("没找到关于豆瓣")
+                self.update_driver_cookies()
+                self.driver.refresh()
+                time.sleep(20)
+            pre_obj_ids = []
+            stop_num = 0
+            while(1):
+                obj_ids,repet_number = self.get_repet_number(pre_obj_ids)
+                if repet_number == 20:
+                    break
+                else:
+                    try:
+                        element = self.driver.find_element_by_xpath('//a[@class="more"]')
+                        element.click()
+                        time.sleep(20)
+                    except selenium.common.exceptions.WebDriverException:
+                        break
+                pre_obj_ids = obj_ids
+            #insert
+            for obj_id in self.new_ids:
+                GlobalVar.get_db_handle()[self.ids_collection_name].update({'obj_id': obj_id},{'$setOnInsert': {'url': url}},True)
+        #self.quit()
+    
+if sys.argv[1] == "getall":
+    demo = DowBanID()
+    demo.get_all_id()
+elif sys.argv[1] == "update":
+    demo = DowBanID()
+    demo.update_new_id()
+else:
+    print "input getall or update"
